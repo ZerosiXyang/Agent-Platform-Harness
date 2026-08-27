@@ -114,11 +114,15 @@ jobs:
 
       - name: Dual-Core Agent Self-Heal
         run: |
-          # Codex 无头模式自愈：读取 CI 失败日志并自动修复
-          # 已验证（codex-cli 0.149.1）：prompt 直接作位置参数，沙箱用 -s workspace-write
-          # TODO: 接入失败日志获取（如 gh run view --log-failed）后再注入具体报错
+          # 装 ruff，让 codex 能定位 + 验证修复（self-heal 是独立 job，没有 backend 的 dev 依赖）
+          pip install ruff >/dev/null 2>&1 || true
           codex exec -s workspace-write \
-            "根据 CI 报错修复 Python 或 Vue3 代码，保持架构边界（见 docs/architecture/boundaries.md）。请运行 ruff check 与 npm run lint 定位失败后修复。"
+            "修复 backend/ 的 Python 代码使 ruff check 通过（重点：未使用的 import F401、类型提示 ANN）。先运行 'python -m ruff check backend' 定位问题，修复后再运行 'python -m ruff check backend' 确认通过。保持架构边界（见 docs/architecture/boundaries.md）。"
+
+      - name: 验证修复
+        run: |
+          pip install ruff >/dev/null 2>&1 || true
+          python -m ruff check backend
 
       - name: 推送修复并创建 PR
         env:
