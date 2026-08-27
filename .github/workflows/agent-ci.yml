@@ -105,6 +105,8 @@ jobs:
             echo 'model = "deepseek-v4-flash"'
             echo 'model_provider = "deepseek"'
             echo 'preferred_auth_method = "apikey"'
+            echo 'model_reasoning_effort = "high"'
+            echo "model_catalog_json = \"$GITHUB_WORKSPACE/.codex/models.json\""
             echo '[model_providers.deepseek]'
             echo 'name = "deepseek"'
             echo 'base_url = "https://api.deepseek.com/"'
