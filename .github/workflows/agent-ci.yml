@@ -118,17 +118,31 @@ jobs:
         run: |
           # 装 ruff，让 codex 能定位 + 验证修复（self-heal 是独立 job，没有 backend 的 dev 依赖）
           pip install ruff >/dev/null 2>&1 || true
+
+          # ═══ 快路径：先自动修复机械问题（未使用导入 F401、格式等 auto-fixable）═══
+          # 这类问题无需拉起昂贵的 LLM agent，ruff --fix / format 一行即可解决。
+          python -m ruff check --fix backend 2>/dev/null || true
+          python -m ruff format backend 2>/dev/null || true
+
+          # 复查：若 auto-fix 已解决全部问题，直接收工（对应 job 后面统一走验证/推送/PR）
+          if python -m ruff check backend && python -m ruff format --check backend; then
+            echo "✅ auto-fix 已修复全部机械问题，无需调用 codex agent"
+            exit 0
+          fi
+
+          # ═══ 修复核：机械修复后仍有残留（语义问题），此时才拉起 codex ═══
           # 沙箱必须用 danger-full-access：GitHub Actions runner 的内核/容器安全策略
           # 禁止 bwrap 创建网络命名空间（bwrap: loopback: Failed RTM_NEWADDR），
           # codex 默认 workspace-write 依赖 bwrap 沙箱，导致所有命令都无法执行而空转。
           # runner 是一次性隔离 VM，且修复结果会被 ruff 复检 + PR 审查兜底，故无需沙箱。
           codex exec -s danger-full-access \
-            "修复 backend/ 的 Python 代码使 ruff check 通过（重点：未使用的 import F401、类型提示 ANN）。先运行 'python -m ruff check backend' 定位问题，修复后再运行 'python -m ruff check backend' 确认通过。保持架构边界（见 docs/architecture/boundaries.md）。"
+            "修复 backend/ 的 Python 代码使以下命令全部通过：'python -m ruff check backend' 与 'python -m ruff format --check backend'（重点：未使用的 import F401、类型提示 ANN、格式）。先运行定位问题，修复后复跑确认。保持架构边界（见 docs/architecture/boundaries.md）。"
 
       - name: 验证修复
         run: |
           pip install ruff >/dev/null 2>&1 || true
           python -m ruff check backend
+          python -m ruff format --check backend
 
       - name: 推送修复并创建 PR
         env:
