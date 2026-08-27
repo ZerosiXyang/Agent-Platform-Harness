@@ -1,0 +1,80 @@
+# API 规范
+
+> 参考层，自动生成。当前为依据需求文档 §6 整理的接口清单，待后端稳定后由 OpenAPI 导出替换。
+
+## 接口清单
+
+| 编号 | 端点 | 方法 | 描述 |
+|------|------|------|------|
+| API-01 | `/api/chat/stream` | GET | SSE 流式对话（实时推送思考与工具调用进度） |
+| API-02 | `/api/chat` | POST | 非流式（同步）对话 |
+| API-03 | `/api/threads` | GET | 用户历史会话列表 |
+| API-04 | `/api/threads/{thread_id}` | GET | 会话详情与消息历史 |
+| API-05 | `/api/threads/{thread_id}` | DELETE | 删除会话 |
+| API-06 | `/api/memory` | GET | 获取用户长期记忆 |
+| API-07 | `/api/memory` | POST | 手动写入用户长期记忆 |
+
+## SSE 流式对话接口
+
+```text
+GET /api/chat/stream
+Query Parameters:
+  - thread_id: string (required) — 会话 ID（≤255 字符）
+  - message: string (required) — 用户消息
+  - user_id: string (required) — 用户 ID
+
+Response: text/event-stream
+Event Format: data: {JSON}\n\n
+```
+
+## 同步对话接口
+
+```text
+POST /api/chat
+Request Body:
+{
+  "thread_id": "string",
+  "message": "string",
+  "user_id": "string"
+}
+Response:
+{
+  "thread_id": "string",
+  "message": { ... },
+  "tool_calls": [ ... ]
+}
+```
+
+## 会话管理接口
+
+```text
+GET /api/threads
+Query: user_id, limit, offset
+Response: { threads: [...], total: number }
+
+GET /api/threads/{thread_id}
+Response: { thread: {...}, messages: [...] }
+
+DELETE /api/threads/{thread_id}
+Response: { success: boolean }
+```
+
+## 记忆管理接口
+
+```text
+GET  /api/memory?user_id=...
+POST /api/memory   # 手动写入长期记忆
+```
+
+## SSE 事件类型（8 种）
+
+| 事件类型 | 数据字段 |
+|----------|----------|
+| `agent_started` | `{ agent, timestamp }` |
+| `agent_thinking` | `{ agent, thought }` |
+| `tool_called` | `{ agent, tool, input }` |
+| `tool_result` | `{ agent, tool, result }` |
+| `agent_completed` | `{ agent, output }` |
+| `workflow_completed` | `{ result }` |
+| `error` | `{ message, agent? }` |
+| `token` | `{ content, delta }` |
