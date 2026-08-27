@@ -87,6 +87,9 @@ jobs:
     needs: [backend, frontend, langsmith-check]
     if: failure()
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
 
@@ -117,12 +120,23 @@ jobs:
           codex exec -s workspace-write \
             "根据 CI 报错修复 Python 或 Vue3 代码，保持架构边界（见 docs/architecture/boundaries.md）。请运行 ruff check 与 npm run lint 定位失败后修复。"
 
-      - name: 自动提交修复
+      - name: 推送修复并创建 PR
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name "agent-ci"
-          git config user.email "agent-ci@example.com"
-          git checkout -b feature/auto-heal
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -z "$(git status --porcelain)" ]; then
+            echo "codex 未产生变更，跳过 PR"
+            exit 0
+          fi
+          BRANCH="auto-heal-${{ github.run_id }}"
+          git checkout -b "$BRANCH"
           git add -A
-          git commit -m "fix: CI 自愈修复" || echo "无变更"
-          # 实际提 PR 需配置 gh CLI 或 GITHUB_TOKEN 权限
-          # gh pr create --title "fix: CI 自愈修复" --body "自动修复提交"
+          git commit -m "fix: Codex 自愈修复（run ${{ github.run_id }}）"
+          git push origin "$BRANCH"
+          gh pr create \
+            --title "fix: Codex 自愈修复" \
+            --body "CI 失败后由 Codex（DeepSeek）自动修复。触发 run: ${{ github.run_id }}，请人工 review 后合并。" \
+            --base main \
+            --head "$BRANCH"
