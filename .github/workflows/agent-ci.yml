@@ -90,9 +90,26 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Dual-Core Agent Self-Heal
+      - name: 安装 Codex CLI
+        run: npm install -g @openai/codex
+
+      - name: 配置 Codex 使用 DeepSeek
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+        run: |
+          mkdir -p ~/.codex
+          {
+            echo 'model = "deepseek-v4-flash"'
+            echo 'model_provider = "deepseek"'
+            echo 'preferred_auth_method = "apikey"'
+            echo '[model_providers.deepseek]'
+            echo 'name = "deepseek"'
+            echo 'base_url = "https://api.deepseek.com/"'
+            echo 'wire_api = "responses"'
+            echo "experimental_bearer_token = \"$DEEPSEEK_API_KEY\""
+          } > ~/.codex/config.toml
+
+      - name: Dual-Core Agent Self-Heal
         run: |
           # Codex 无头模式自愈：读取 CI 失败日志并自动修复
           # 已验证（codex-cli 0.149.1）：prompt 直接作位置参数，沙箱用 -s workspace-write
