@@ -118,7 +118,11 @@ jobs:
         run: |
           # 装 ruff，让 codex 能定位 + 验证修复（self-heal 是独立 job，没有 backend 的 dev 依赖）
           pip install ruff >/dev/null 2>&1 || true
-          codex exec -s workspace-write \
+          # 沙箱必须用 danger-full-access：GitHub Actions runner 的内核/容器安全策略
+          # 禁止 bwrap 创建网络命名空间（bwrap: loopback: Failed RTM_NEWADDR），
+          # codex 默认 workspace-write 依赖 bwrap 沙箱，导致所有命令都无法执行而空转。
+          # runner 是一次性隔离 VM，且修复结果会被 ruff 复检 + PR 审查兜底，故无需沙箱。
+          codex exec -s danger-full-access \
             "修复 backend/ 的 Python 代码使 ruff check 通过（重点：未使用的 import F401、类型提示 ANN）。先运行 'python -m ruff check backend' 定位问题，修复后再运行 'python -m ruff check backend' 确认通过。保持架构边界（见 docs/architecture/boundaries.md）。"
 
       - name: 验证修复
