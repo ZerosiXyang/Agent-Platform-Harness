@@ -17,13 +17,20 @@
 - [x] `.github/workflows/agent-ci.yml`（后端测试 + 前端 lint + LangSmith 打点拦截 + 双核自愈）
 - [x] 本地验证：`ruff check` / `pytest` / `npm run lint` 实测通过
 - [x] Codex 自愈闭环实测（制造 bug → ruff 捕获 → codex 定位 → codex 修复 → ruff 复检通过）
-- [ ] CI 自愈闭环实测（需真实 GitHub Actions 环境）
+- [x] CI 自愈闭环实测（2026-08-27 真实 GH Actions：制造 `import os` → backend 失败 → self-heal（danger-full-access 修复 bwrap 空转）→ codex 删 import → ruff 复检 → auto-heal 分支 → PR #2 自动创建）
 - [x] 代码审查机制落地（`docs/conventions/code-review.md` + 两阶段 subagent 审查试点通过，审出并修复 langsmith-check grep 误判）
 
 > 说明：`langsmith-check` 依赖真实追踪后端；`self-heal` 已用真实 codex 语法验证，
 > 详见 `docs/plans/self-heal-verification.md`。
 
-## Phase 3：自动化层（待开始，依赖基础设施）
+## Phase 3：自动化层（开始：三层记忆第一块）
 
-- Codex Harness 沙箱 + Superpowers TDD
-- ReAct / 三层记忆 / SSE 自动化测试
+> **起点判定（2026-08-27）**：业务代码（`backend/langgraph|db|rag`）全是空壳，Phase 3 的"自动化测试"依赖它们——所以第一步不是写测试，而是**用 TDD 先实现第一块业务代码**。首选「三层记忆」（MEM-01~06 规格在 `需求文档.md` §5.2 已明确，且不依赖外部推理服务即可测试 PostgresSaver/Store 持久化）。
+>
+> 工具链（codex-harness / Superpowers TDD）是**可选提速**，不是 Phase 3 的前置依赖——不阻塞业务实现。
+
+- [ ] 三层记忆：`backend/db/` 连接 + PostgresSaver 短期记忆（MEM-01/02）
+- [ ] 三层记忆：PostgresStore 长期记忆 + save/recall_memory 工具（MEM-03/05）
+- [ ] 三层记忆：pgvector 语义检索（MEM-04，需 Milvus 或 pgvector 实际可用）
+- [ ] 检查点清理（MEM-06）
+- [ ] ReAct / 三层记忆 / SSE 自动化测试
