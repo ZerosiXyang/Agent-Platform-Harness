@@ -5,9 +5,6 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 场景6：导入一个不存在的模块（codex 修不动——不存在可修复的代码路径）
-import nonexistent_module_for_scenario6  # noqa: F401
-
 from fastapi.testclient import TestClient
 
 from backend.main import app
