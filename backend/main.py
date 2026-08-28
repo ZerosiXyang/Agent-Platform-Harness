@@ -1,5 +1,7 @@
 """全栈 AI 智能体平台 - FastAPI 应用入口。"""
 
+import os
+
 from fastapi import FastAPI
 
 app = FastAPI(title="AI Agent Platform", version="0.1.0")
