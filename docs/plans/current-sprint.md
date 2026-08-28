@@ -23,14 +23,13 @@
 > 说明：`langsmith-check` 依赖真实追踪后端；`self-heal` 已用真实 codex 语法验证，
 > 详见 `docs/plans/self-heal-verification.md`。
 
-## Phase 3：自动化层（开始：三层记忆第一块）
+## Phase 3：自动化层（开始：搭自动化测试 harness）
 
-> **起点判定（2026-08-27）**：业务代码（`backend/langgraph|db|rag`）全是空壳，Phase 3 的"自动化测试"依赖它们——所以第一步不是写测试，而是**用 TDD 先实现第一块业务代码**。首选「三层记忆」（MEM-01~06 规格在 `需求文档.md` §5.2 已明确，且不依赖外部推理服务即可测试 PostgresSaver/Store 持久化）。
->
-> 工具链（codex-harness / Superpowers TDD）是**可选提速**，不是 Phase 3 的前置依赖——不阻塞业务实现。
+> **性质**：自动化层 = 搭建"测试/自愈执行 harness"（REACT-06 回归测试套件、REACT-05 提示注入防御回归、SSE Mock 验证）。按 `docs/plans/backlog.md` 顺序推进。
+> 注意：三层记忆 / ReAct 等业务代码（`backend/langgraph|db|rag` 当前仍是空壳）是 harness 的**被测对象**，应在 harness 搭起来后用 TDD 补实现，二者并进而非等测试完备才开始业务。
 
-- [ ] 三层记忆：`backend/db/` 连接 + PostgresSaver 短期记忆（MEM-01/02）
-- [ ] 三层记忆：PostgresStore 长期记忆 + save/recall_memory 工具（MEM-03/05）
-- [ ] 三层记忆：pgvector 语义检索（MEM-04，需 Milvus 或 pgvector 实际可用）
-- [ ] 检查点清理（MEM-06）
-- [ ] ReAct / 三层记忆 / SSE 自动化测试
+- [ ] 拉取并接入 `codex-harness` 沙箱（backlog 第 1 项）
+- [ ] 接入 Superpowers TDD 强制流程（backlog 第 2 项，含 pytest 骨架）
+- [ ] `prompt_injection_defense.py` + REACT-05/06 回归测试
+- [ ] 三层记忆（thread/user/cross-session）测试
+- [ ] SSE 流式交互 Mock 验证（8 种事件 + Vue3 Props）
