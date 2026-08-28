@@ -2,8 +2,8 @@ name: Agent CI（双核自愈）
 
 on:
   push:
-    branches: [main, develop]
-  pull_request:
+    branches: [main, develop]   # 承重：不限分支则 feature 直推失败也触发自愈 → heal PR 裹挟 feature 代码
+  pull_request:                  # PR 跑门禁做检查；自愈被事件守卫挡掉
 
 jobs:
   backend:
@@ -23,39 +23,34 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    outputs:
+      verdict: ${{ steps.gates.outcome }}   # failure=代码问题；skipped=infra 挂在前置步
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v4           # infra 步
+      - uses: actions/setup-python@v5       # infra 步
         with:
           python-version: "3.12"
-
-      - name: Install dependencies
+      - name: Install dependencies          # infra 步：挂 → 后续 gates skipped → verdict=skipped
         run: pip install -e ".[dev]"
-
-      - name: Ruff check（强制类型提示 + 禁未使用导入）
+      - id: gates                           # 只放代码门禁 + 测试
+        name: Gates（Ruff + pytest）
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent_test
         run: |
           ruff check backend
           ruff format --check backend
-
-      - name: Run Backend Tests (LangGraph & Memory)
-        env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agent_test
-        run: pytest
+          pytest
 
   frontend:
     name: 前端 Lint（Vue3）
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
       - name: Install dependencies
         run: cd frontend && npm ci
-
       - name: Run Frontend Lint (Vue3)
         run: cd frontend && npm run lint
 
@@ -64,11 +59,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - name: Check LangSmith trace_id 打点
         run: |
-          # 所有 LangGraph 节点与 @tool 声明必须携带 trace_id / @traceable 打点
-          # 若新增节点或工具未打点，此步骤失败拦截
           files=$(grep -rlE "add_node|@tool" backend/ --include='*.py' 2>/dev/null | grep -v '/__init__.py' || true)
           if [ -z "$files" ]; then
             echo "ℹ️ 当前无 LangGraph 节点或 @tool 声明，跳过打点检查"
@@ -83,23 +75,35 @@ jobs:
           echo "✅ 全部已打点 LangSmith 追踪"
 
   self-heal:
-    name: 双核 Agent 自愈
+    name: Agent self-heal
     needs: [backend, frontend, langsmith-check]
-    if: failure()
+    timeout-minutes: 20          # 防 agent 挂死烧满小时（限自愈本身）
+    # H1 事件守卫：仅 push 事件；PR 不自愈（竞态/裹挟 feature/注入面）。
+    #   给 PR 自动修的正确形态是"评论触发+往 head 推回"，不是从 merge ref 开 base=main 新 PR。
+    # ⚠ 单行——GHA 表达式不支持 \ 续行（shell 语法；plain scalar 里 \ 是字面字符）。
+    # 注意：verdict 判定用 backend（self-heal 修的是 backend 代码）；frontend/langsmith 失败不进入 agent 修复路径。
+    if: failure() && needs.backend.outputs.verdict == 'failure' && github.event_name == 'push' && !startsWith(github.head_ref || github.ref_name, 'heal/')
     runs-on: ubuntu-latest
     permissions:
       contents: write
       pull-requests: write
+    concurrency:
+      group: self-heal-${{ github.ref }}
+      cancel-in-progress: true     # 只防同 ref 堆积，断环靠上方分支名判定
     steps:
       - uses: actions/checkout@v4
-
-      - name: 安装 Codex CLI
-        run: npm install -g @openai/codex
-
-      - name: 配置 Codex 使用 DeepSeek
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install deps          # 装 dev 依赖锁定 ruff 版本（勿裸装最新，会与 pyproject 锁版本漂移→本地绿 main 红）
+        run: pip install -e ".[dev]"
+      - name: Install fix agent (pin version)
+        run: npm install -g @openai/codex@0.150.1   # 锁版本；换 CLI 见 SKILL 5.0
+      - name: Configure fix agent (DeepSeek provider)
         env:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
         run: |
+          test -f .codex/models.json || { echo "::error::.codex/models.json missing (需进仓库)"; exit 1; }
           mkdir -p ~/.codex
           {
             echo 'model = "deepseek-v4-flash"'
@@ -113,54 +117,37 @@ jobs:
             echo 'wire_api = "responses"'
             echo "experimental_bearer_token = \"$DEEPSEEK_API_KEY\""
           } > ~/.codex/config.toml
-
-      - name: Dual-Core Agent Self-Heal
+      - name: Self-heal
         run: |
-          # 装 ruff，让 codex 能定位 + 验证修复（self-heal 是独立 job，没有 backend 的 dev 依赖）
-          pip install ruff >/dev/null 2>&1 || true
-
-          # ═══ 快路径：先自动修复机械问题（未使用导入 F401、格式等 auto-fixable）═══
-          # 这类问题无需拉起昂贵的 LLM agent，ruff --fix / format 一行即可解决。
+          # 自愈范围 = 门禁范围（含 pytest）——机械快路径复查全门禁，修不掉才调 agent
           python -m ruff check --fix backend 2>/dev/null || true
           python -m ruff format backend 2>/dev/null || true
-
-          # 复查：若 auto-fix 已解决全部问题，直接收工（对应 job 后面统一走验证/推送/PR）
-          if python -m ruff check backend && python -m ruff format --check backend; then
-            echo "✅ auto-fix 已修复全部机械问题，无需调用 codex agent"
+          if python -m ruff check backend && python -m ruff format --check backend && pytest -q; then
+            echo "auto-fix resolved all; skipping agent"
             exit 0
           fi
-
-          # ═══ 修复核：机械修复后仍有残留（语义问题），此时才拉起 codex ═══
-          # 沙箱必须用 danger-full-access：GitHub Actions runner 的内核/容器安全策略
-          # 禁止 bwrap 创建网络命名空间（bwrap: loopback: Failed RTM_NEWADDR），
-          # codex 默认 workspace-write 依赖 bwrap 沙箱，导致所有命令都无法执行而空转。
-          # runner 是一次性隔离 VM，且修复结果会被 ruff 复检 + PR 审查兜底，故无需沙箱。
           codex exec -s danger-full-access \
-            "修复 backend/ 的 Python 代码使以下命令全部通过：'python -m ruff check backend' 与 'python -m ruff format --check backend'（重点：未使用的 import F401、类型提示 ANN、格式）。先运行定位问题，修复后复跑确认。保持架构边界（见 docs/architecture/boundaries.md）。"
-
-      - name: 验证修复
+            "Fix backend/ so 'ruff check backend', 'ruff format --check backend', and 'pytest' all pass. Run them first to locate, fix, then re-run all three to confirm."
+      - name: Verify fix (reject false success)
         run: |
-          pip install ruff >/dev/null 2>&1 || true
           python -m ruff check backend
           python -m ruff format --check backend
-
-      - name: 推送修复并创建 PR
+          pytest -q
+      - name: Push heal branch + create PR
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           if [ -z "$(git status --porcelain)" ]; then
-            echo "codex 未产生变更，跳过 PR"
-            exit 0
+            echo "::error::self-heal produced no diff — failure not healed"
+            exit 1   # 走到这还没 diff = 自愈失败，必须红（不能绿着 no-op）
           fi
-          BRANCH="auto-heal-${{ github.run_id }}"
+          BRANCH="heal/auto-heal-${{ github.run_id }}"   # heal/ 前缀断环；勿用 fix/（撞车）
           git checkout -b "$BRANCH"
           git add -A
-          git commit -m "fix: Codex 自愈修复（run ${{ github.run_id }}）"
+          git commit -m "fix: auto-heal (run ${{ github.run_id }})"
           git push origin "$BRANCH"
-          gh pr create \
-            --title "fix: Codex 自愈修复" \
-            --body "CI 失败后由 Codex（DeepSeek）自动修复。触发 run: ${{ github.run_id }}，请人工 review 后合并。" \
-            --base main \
-            --head "$BRANCH"
+          gh pr create --title "fix: auto-heal" \
+            --body "CI failure auto-repaired. Trigger run: ${{ github.run_id }}. Please review manually before merge." \
+            --base main --head "$BRANCH"
