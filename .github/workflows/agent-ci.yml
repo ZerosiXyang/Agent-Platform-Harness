@@ -127,7 +127,7 @@ jobs:
             exit 0
           fi
           codex exec -s danger-full-access \
-            "Fix backend/ so 'ruff check backend', 'ruff format --check backend', and 'pytest' all pass. Run them first to locate, fix, then re-run all three to confirm."
+            "Fix backend/ so 'ruff check backend', 'ruff format --check backend', and 'pytest' all pass. Run them first to locate, fix, then re-run all three to confirm. NEVER delete, skip, or weaken a test to make it pass — fix the code under test instead. If a test is genuinely wrong, leave it failing and say so loudly rather than removing it."
       - name: Verify fix (reject false success)
         run: |
           python -m ruff check backend
