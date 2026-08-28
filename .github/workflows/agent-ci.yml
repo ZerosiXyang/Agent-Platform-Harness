@@ -27,9 +27,9 @@ jobs:
       verdict: ${{ steps.gates.outcome }}   # failure=代码问题；skipped=infra 挂在前置步
     steps:
       - uses: actions/checkout@v4           # infra 步
-      - uses: actions/setup-python@v5       # infra 步（场景3：故意用不存在版本制造 infra 失败）
+      - uses: actions/setup-python@v5       # infra 步
         with:
-          python-version: "9.9.9"
+          python-version: "3.12"
       - name: Install dependencies          # infra 步：挂 → 后续 gates skipped → verdict=skipped
         run: pip install -e ".[dev]"
       - id: gates                           # 只放代码门禁 + 测试
